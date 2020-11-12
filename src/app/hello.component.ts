@@ -1,15 +1,17 @@
 import { HttpClient } from "@angular/common/http";
-import { Component, Input, OnInit } from "@angular/core";
-import { Observable, of, Subject, throwError } from "rxjs";
-import { delay, flatMap, map, retry, share, takeUntil } from "rxjs/operators";
+import { Component, OnInit } from "@angular/core";
+import { of, Subject, throwError } from "rxjs";
+import { delay, flatMap, retry, share, takeUntil } from "rxjs/operators";
 
 @Component({
   selector: "hello",
   template: `
-    <h1>Hello {{ name }}!</h1>
-    <h2>result: {{ success }}!</h2>
-    <h3> {{ error }}</h3>
-
+    <h1>Hello!</h1>
+    <h2 *ngIf="progress">{{ state }}</h2>
+    <h2 *ngIf="!progress">Success: {{ success }}!</h2>
+    <h3 *ngIf="!progress">{{ finalState }}</h3>
+    <hr />
+    <h3>{{ error }}</h3>
   `,
   styles: [
     `
@@ -20,16 +22,18 @@ import { delay, flatMap, map, retry, share, takeUntil } from "rxjs/operators";
   ]
 })
 export class HelloComponent implements OnInit {
-  @Input() name: string;
   success = false;
   error = "";
+  state = "";
+  progress = true;
+  finalState = "";
   unsubcribe$ = new Subject<void>();
 
   constructor(private httpClient: HttpClient) {}
 
   ngOnInit() {
     console.log("init component");
-    
+    this.state = "Call API in progress...";
     let nTime = 0;
     this.httpClient
       //.get("https://api.mocki.io/v1/2fe696bd")
@@ -37,31 +41,52 @@ export class HelloComponent implements OnInit {
       .pipe(
         takeUntil(this.unsubcribe$),
         delay(2000),
-        flatMap((data: any) => {
+        flatMap((returnData: any) => {
           nTime++;
-          console.log(nTime.toString(), ":", data);
+          this.state =
+            "Call API in progress... (" +
+            nTime.toString() +
+            " call" +
+            (nTime > 1 ? "s" : "") +
+            ")";
+          console.log(nTime.toString(), ":", returnData);
 
-          if (!data || !data.success) {
-              return throwError("Error for Retry Observable");
+          //** condition to retry  */
+          if (!returnData || !returnData.success) {
+            return throwError("Error for Retry Observable");
           } else {
-            return of(data);
+            return of(returnData);
           }
         }),
-        retry(10),
-        share()
+        retry(10)
       )
-      .subscribe(resp => {
-        console.log("resp: ",resp);
-        if (resp?.success) {
+      .subscribe(
+        //** Respose OK */
+        resp => {
+          console.log("resp: ", resp);
           this.success = resp.success;
-        } else {
-          this.error = 'This is an Error';
-          console.error("Error get data");
+          this.progress = false;
+          this.finalState =
+            "Execution: " + nTime.toString() + " time" + (nTime > 1 ? "s" : "");
+        },
+        //** Error */
+        err => {
+          console.error("error: ", err);
+          this.progress = false;
+          this.finalState =
+            "Execution: " +
+            (nTime - 1).toString() +
+            " time" +
+            (nTime - 1 > 1 ? "s" : "");
+        },
+        //** Observable complete */
+        () => {
+          this.progress = false;
         }
-      }, err=>{console.error('error: ',err)});
+      );
   }
 
-  ngOnDestroy(){
+  ngOnDestroy() {
     this.unsubcribe$.next();
     this.unsubcribe$.complete();
   }
